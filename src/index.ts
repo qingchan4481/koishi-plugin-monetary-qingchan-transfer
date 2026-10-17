@@ -22,32 +22,21 @@ export interface Config {
   transferCooldown: number
 }
 
-export const Config: Schema<Config> = Schema.intersect([
-  Schema.object({
-    currency: Schema.string().default('default').description('使用的积分类型名称（对应 monetary 插件的货币名）。'),
-    maxTransferAmount: Schema.number().default(0).min(0).description('单次转账最大金额限制（填 0 表示不限制）。'),
-    forceInteger: Schema.boolean().default(true).description('是否强制要求转账金额必须为整数。'),
-    enableFee: Schema.boolean().default(false).description('是否开启转账手续费。'),
-    transferCooldown: Schema.number().default(10).min(0).description('连续转账的最短间隔时间（单位：秒）。填 0 表示不限制。'),
-  }).description('基础设置'),
-  
-  Schema.union([
-    Schema.object({
-      enableFee: Schema.const(true).required(),
-      feeRules: Schema.dict(Schema.number())
-        .default({
-          '1000': 1,
-          '5000': 2,
-          '10000': 5,
-        })
-        .description('阶梯手续费。**左侧填转账金额上限，右侧直接填数字代表百分比（填 1 即代表 1%）**。如果超出所有设定金额，则不再收取手续费。'),
-    }),
-    Schema.object({
-      enableFee: Schema.const(false).required(),
-      feeRules: Schema.dict(Schema.number()).default({}).hidden(),
-    }),
-  ]),
-])
+// 【核心修改】：放弃 Schema.intersect 和 Schema.union，采用最简单直接的 Schema.object
+export const Config: Schema<Config> = Schema.object({
+  currency: Schema.string().default('default').description('使用的积分类型名称（对应 monetary 插件的货币名）。'),
+  maxTransferAmount: Schema.number().default(0).min(0).description('单次转账最大金额限制（填 0 表示不限制）。'),
+  forceInteger: Schema.boolean().default(true).description('是否强制要求转账金额必须为整数。'),
+  transferCooldown: Schema.number().default(10).min(0).description('连续转账的最短间隔时间（单位：秒）。填 0 表示不限制。'),
+  enableFee: Schema.boolean().default(false).description('是否开启转账手续费。'),
+  feeRules: Schema.dict(Schema.number())
+    .default({
+      '1000': 1,
+      '5000': 2,
+      '10000': 5,
+    })
+    .description('阶梯手续费。左侧填转账金额上限，右侧直接填数字代表百分比（填 1 即代表 1%）。**仅在开启手续费时生效**。'),
+})
 
 export function apply(ctx: Context, config: Config) {
   const cooldownMap = new Map<number, number>()
@@ -103,27 +92,21 @@ export function apply(ctx: Context, config: Config) {
 
       if (senderUid === receiverUid) return '你不能给自己转账哦。'
 
-      // ========== 获取对方昵称 ==========
-      let targetName = targetStr // 默认兜底用 ID
-      
-      // 1. 尝试从当前消息的 @ 元素里直接拿
+      // 获取对方昵称
+      let targetName = targetStr
       const atElement = session.elements?.find(el => el.type === 'at' && (el.attrs?.id === targetStr || el.attrs?.qq === targetStr))
       if (atElement?.attrs?.name) {
         targetName = atElement.attrs.name
       } else {
-        // 2. 如果 @ 里没有，通过 bot API 查询
         try {
           const botUser = await session.bot.getUser(targetStr)
-          // 【修复点】：在末尾加上 || targetStr，确保结果必定是 string
           const name = botUser?.name || botUser?.nick || botUser?.nickname
           if (name) targetName = name
         } catch (e) {
-          // 查询失败降级到数据库查
           const [dbUser] = await ctx.database.get('user', { id: receiverUid })
           if (dbUser?.name) targetName = dbUser.name
         }
       }
-      // =====================================
 
       if (config.maxTransferAmount > 0 && amount > config.maxTransferAmount) {
         return `单次转账金额不能超过 ${config.maxTransferAmount}。`

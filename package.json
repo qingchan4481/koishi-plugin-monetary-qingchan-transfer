@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-monetary-qingchan-transfer",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "适用于QQ官方bot的monetary转账插件，可配置限额和阶梯手续费",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
